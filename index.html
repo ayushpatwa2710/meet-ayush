@@ -195,9 +195,11 @@
     width:38px; height:38px; border-radius:50%; flex-shrink:0; cursor:pointer;
     background:rgba(255,255,255,0.92); color:var(--ink); text-decoration:none;
     display:flex; align-items:center; justify-content:center; font-size:14px;
-    transition: transform .15s ease;
+    transition: transform .15s ease, background .15s ease;
+    border:none; padding:0; font-family:inherit;
   }
   .play-btn:hover{ transform:scale(1.08); }
+  .play-btn.playing{ background:var(--brick-yellow); }
   .song-info{ flex:1; min-width:0; }
   .song-title{ font-family:'Baloo 2', cursive; font-weight:700; font-size:16px; }
   .song-artist{ font-size:13px; color:rgba(255,255,255,0.85); }
@@ -364,23 +366,23 @@
   <div class="section-head"><h2><span class="section-eq"><span></span><span></span><span></span><span></span></span>Songs Currently on Repeat</h2></div>
   <div class="song-list">
     <div class="song-row" style="background:linear-gradient(90deg,#8A1230,#D2122E);">
-      <a class="play-btn" href="https://www.youtube.com/watch?v=Skp5roPkjys" target="_blank" rel="noopener" aria-label="Play Lo Safar on YouTube">▶</a>
+      <button class="play-btn" data-video="Skp5roPkjys" aria-label="Play Lo Safar">▶</button>
       <div class="song-info"><div class="song-title">Lo Safar</div><div class="song-artist">Jubin Nautiyal</div></div>
     </div>
     <div class="song-row" style="background:linear-gradient(90deg,#2B2140,#0057A6);">
-      <a class="play-btn" href="https://www.youtube.com/watch?v=4lbMT-bGGSs" target="_blank" rel="noopener" aria-label="Play Apocalypse on YouTube">▶</a>
+      <button class="play-btn" data-video="4lbMT-bGGSs" aria-label="Play Apocalypse">▶</button>
       <div class="song-info"><div class="song-title">Apocalypse</div><div class="song-artist">Cigarettes After Sex</div></div>
     </div>
     <div class="song-row" style="background:linear-gradient(90deg,#7A5200,#FFC400);">
-      <a class="play-btn" href="https://www.youtube.com/watch?v=h5-Kq9k3zeo" target="_blank" rel="noopener" aria-label="Play Toh Phir Aao on YouTube">▶</a>
+      <button class="play-btn" data-video="h5-Kq9k3zeo" aria-label="Play Toh Phir Aao">▶</button>
       <div class="song-info"><div class="song-title">Toh Phir Aao</div><div class="song-artist">Mustafa Zahid</div></div>
     </div>
     <div class="song-row" style="background:linear-gradient(90deg,#004D24,#00A651);">
-      <a class="play-btn" href="https://www.youtube.com/watch?v=49x8GA2axfc" target="_blank" rel="noopener" aria-label="Play O Meri Laila on YouTube">▶</a>
+      <button class="play-btn" data-video="49x8GA2axfc" aria-label="Play O Meri Laila">▶</button>
       <div class="song-info"><div class="song-title">O Meri Laila</div><div class="song-artist">Atif Aslam</div></div>
     </div>
     <div class="song-row" style="background:linear-gradient(90deg,#7A2145,#FF6F91);">
-      <a class="play-btn" href="https://www.youtube.com/watch?v=9TLs2Dz95ZA" target="_blank" rel="noopener" aria-label="Play Mera Pyar Tera Pyar on YouTube">▶</a>
+      <button class="play-btn" data-video="9TLs2Dz95ZA" aria-label="Play Mera Pyar Tera Pyar">▶</button>
       <div class="song-info"><div class="song-title">Mera Pyar Tera Pyar</div><div class="song-artist">Arijit Singh</div></div>
     </div>
   </div>
@@ -495,55 +497,91 @@
     observer.observe(el);
   });
 
-  // Start a track from the "on repeat" playlist once that section is reached,
-  // and let it keep playing as you continue through the rest of the site.
-  // Browsers block autoplay WITH SOUND outright, so we start muted (always
-  // allowed) and unmute on the very next tap/click, which is a real user
-  // gesture and satisfies the browser's audio policy.
-  const trackIds = ['Skp5roPkjys','4lbMT-bGGSs','h5-Kq9k3zeo','49x8GA2axfc','9TLs2Dz95ZA'];
+  // Play a track from the "on repeat" playlist automatically whenever that
+  // section is on screen, and stop it the moment it's scrolled past.
+  // You can also tap a specific song's play button to hear that exact
+  // track — since that's a direct click, sound works immediately, no
+  // mute/unmute workaround needed.
   const songsSection = document.getElementById('songs');
   const bgPlayer = document.getElementById('bg-player');
+  const playButtons = document.querySelectorAll('.play-btn');
+  const trackIds = Array.from(playButtons).map(b => b.dataset.video);
 
-  let songsInView = false;
-  let hasStartedPlaying = false;
-  let hasUnmuted = false;
+  let audioUnlocked = false;
+  let currentVideoId = null;
 
   function ytCommand(func){
     if(!bgPlayer.contentWindow) return;
     bgPlayer.contentWindow.postMessage(JSON.stringify({event:'command', func:func, args:[]}), '*');
   }
 
-  function startBackgroundTrack(){
-    if(hasStartedPlaying || !songsInView) return;
+  function resetButtons(){
+    playButtons.forEach(b => { b.textContent = '▶'; b.classList.remove('playing'); });
+  }
+
+  function playRandomTrack(){
     const pick = trackIds[Math.floor(Math.random() * trackIds.length)];
-    bgPlayer.src = `https://www.youtube.com/embed/${pick}?autoplay=1&mute=1&playsinline=1&rel=0&enablejsapi=1`;
-    hasStartedPlaying = true;
+    const muteParam = audioUnlocked ? 'mute=0' : 'mute=1';
+    bgPlayer.src = `https://www.youtube.com/embed/${pick}?autoplay=1&${muteParam}&playsinline=1&rel=0&enablejsapi=1`;
+    currentVideoId = pick;
+    resetButtons();
+    const activeBtn = document.querySelector(`.play-btn[data-video="${pick}"]`);
+    if(activeBtn){ activeBtn.textContent = '⏸'; activeBtn.classList.add('playing'); }
+  }
+
+  function stopTrack(){
+    bgPlayer.src = '';
+    currentVideoId = null;
+    resetButtons();
   }
 
   const songsObserver = new IntersectionObserver((entries) => {
     entries.forEach(e => {
       if(e.isIntersecting){
-        songsInView = true;
-        startBackgroundTrack();
+        playRandomTrack();
+      } else {
+        stopTrack();
       }
     });
   }, {threshold:0.3});
   songsObserver.observe(songsSection);
 
-  // First tap/click anywhere unmutes so playback actually has sound.
-  function gestureUnmute(){
-    if(hasUnmuted) return;
-    startBackgroundTrack(); // in case the section was already in view before the first tap
-    if(hasStartedPlaying){
-      ytCommand('unMute');
-      ytCommand('playVideo');
-      hasUnmuted = true;
-      document.removeEventListener('click', gestureUnmute);
-      document.removeEventListener('touchstart', gestureUnmute);
-    }
+  // One-time unlock for the section's own auto-play: the first tap anywhere
+  // turns on sound for the currently auto-playing track (if any) and for
+  // every future auto-start.
+  function unlockAudio(){
+    if(audioUnlocked) return;
+    audioUnlocked = true;
+    ytCommand('unMute');
+    ytCommand('playVideo');
+    document.removeEventListener('click', unlockAudio);
+    document.removeEventListener('touchstart', unlockAudio);
   }
-  document.addEventListener('click', gestureUnmute);
-  document.addEventListener('touchstart', gestureUnmute);
+  document.addEventListener('click', unlockAudio);
+  document.addEventListener('touchstart', unlockAudio);
+
+  // Clicking a song's own play button always plays that exact track with
+  // sound right away (a direct click needs no mute workaround), or pauses
+  // it if it's already the one playing.
+  playButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const videoId = btn.dataset.video;
+      audioUnlocked = true; // a real click always counts as the unlock gesture too
+
+      if(currentVideoId === videoId && btn.classList.contains('playing')){
+        ytCommand('pauseVideo');
+        btn.textContent = '▶';
+        btn.classList.remove('playing');
+        return;
+      }
+
+      bgPlayer.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&playsinline=1&rel=0&enablejsapi=1`;
+      currentVideoId = videoId;
+      resetButtons();
+      btn.textContent = '⏸';
+      btn.classList.add('playing');
+    });
+  });
 </script>
 
 </body>
